@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CRT Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: ticker scorrevole in alto, poi elenco strumenti (sinistra) e dettaglio con grafico e notizie (destra).
+   Su schermi stretti elenco e dettaglio si alternano. */
+:root {
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --line: #dde2ea;
+  --fg: #141a26;
+  --muted: #5d6778;
+  --accent: #2456d6;
+  --up: #0f9d6b;
+  --down: #d6364a;
+  --warn: #b86e00;
+  --up-bg: rgba(15, 157, 107, .10);
+  --down-bg: rgba(214, 54, 74, .10);
+  --up-solid: #0b7d56;
+  --down-solid: #c2253a;
+  --on-solid: #ffffff;
+  --ticker-bg: #0f1b3a;
+  --ticker-fg: #f2f5fb;
+  --ticker-up: #4ee0a8;
+  --ticker-down: #ff8c9a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1118; --surface: #141b26; --line: #263042; --fg: #e6ebf3; --muted: #8f9bb0;
+    --accent: #6d97ff; --up: #2fcf95; --down: #ff6b7d; --warn: #e0a23a;
+    --up-bg: rgba(47, 207, 149, .14); --down-bg: rgba(255, 107, 125, .14);
+    --up-solid: #2fcf95; --down-solid: #ff6b7d; --on-solid: #08121a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1118; --surface: #141b26; --line: #263042; --fg: #e6ebf3; --muted: #8f9bb0;
+  --accent: #6d97ff; --up: #2fcf95; --down: #ff6b7d; --warn: #e0a23a;
+  --up-bg: rgba(47, 207, 149, .14); --down-bg: rgba(255, 107, 125, .14);
+  --up-solid: #2fcf95; --down-solid: #ff6b7d; --on-solid: #08121a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.45 var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Ticker */
+.ticker {
+  background: var(--ticker-bg);
+  color: var(--ticker-fg);
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  min-height: 34px;
+}
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: scroll 45s linear infinite;
+}
+.ticker:hover .ticker-track { animation-play-state: paused; }
+.ticker-group { display: flex; gap: 28px; padding: 8px 14px; white-space: nowrap; }
+.tk { display: inline-flex; gap: 8px; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tk b { font-family: var(--sans); font-weight: 600; }
+.tk .u { color: var(--ticker-up); }
+.tk .d { color: var(--ticker-down); }
+.ticker-msg { padding: 8px 16px; font-size: 12px; opacity: .8; }
+@keyframes scroll { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .ticker { overflow-x: auto; }
+  .ticker-track { animation: none; }
+}
+
+/* Intestazione */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+  max-width: 1200px; margin: 0 auto; padding: 16px 16px 4px;
+}
+.top h1 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin-right: auto; }
+.count { font-size: 13px; color: var(--muted); }
+.count strong { color: var(--fg); font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 7px 14px; font-weight: 500; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 8px;
+  padding: 7px 12px; font-weight: 500;
+}
+.btn:hover { border-color: var(--accent); }
+.btn[disabled] { opacity: .55; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Griglia principale */
+.app {
+  display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px;
+  max-width: 1200px; margin: 0 auto; padding: 12px 16px 24px; align-items: start;
+}
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.panel-head { padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.notice { margin: 12px 14px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 6px; font-size: 13px; }
+.notice button { margin-top: 6px; }
+.rows { display: flex; flex-direction: column; }
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left;
+  width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 11px 14px;
+  border-left: 3px solid transparent;
+}
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--bg); }
+.row.long { background: var(--up-bg); }
+.row.short { background: var(--down-bg); }
+.row.hot.long { border-left-color: var(--up-solid); }
+.row.hot.short { border-left-color: var(--down-solid); }
+.row.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sym { display: flex; flex-direction: column; min-width: 0; }
+.sym strong { font-weight: 600; }
+.px { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.state { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; color: var(--muted); text-align: right; }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--on-solid); }
+.badge.long { background: var(--up-solid); }
+.badge.short { background: var(--down-solid); }
+.forming { color: var(--warn); font-size: 11.5px; }
+.err { color: var(--warn); }
+
+/* Dettaglio */
+.detail-body { padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+.d-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.d-head h2 { font-size: 22px; font-weight: 600; }
+.d-sub { color: var(--muted); font-size: 13px; }
+.d-px { font-family: var(--mono); font-size: 22px; font-variant-numeric: tabular-nums; }
+.back { display: none; }
+.readout { min-height: 20px; font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chart { width: 100%; }
+.chart svg { display: block; touch-action: pan-y; }
+.chart text { font-family: var(--mono); font-size: 10.5px; }
+.grid-line { stroke: var(--line); stroke-width: 1; }
+.axis-t { fill: var(--muted); }
+.wick-up { stroke: var(--up); } .wick-dn { stroke: var(--down); }
+.body-up { fill: var(--up); } .body-dn { fill: var(--down); }
+.band-ref { fill: var(--accent); opacity: .10; }
+.band-sweep { fill: var(--warn); opacity: .12; }
+.lv { stroke-width: 1; fill: none; }
+.lv-mid { stroke: var(--muted); stroke-dasharray: 2 4; }
+.lv-stop { stroke: var(--down); stroke-dasharray: 5 4; }
+.lv-target { stroke: var(--up); stroke-dasharray: 5 4; }
+.lv-entry { stroke: var(--fg); stroke-dasharray: 1 3; }
+.lv-name { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.pill { fill: var(--surface); stroke-width: 1; }
+.pill-t { font-weight: 500; }
+.cursor { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; background: currentColor; opacity: .5; }
+.legend .l-ref::before { background: var(--accent); } .legend .l-sweep::before { background: var(--warn); }
+.setup { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.setup h3 { font-size: 14px; font-weight: 600; }
+.levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 16px; margin: 0; }
+.levels div { min-width: 0; }
+.levels dt { font-size: 12px; color: var(--muted); }
+.levels dd { margin: 2px 0 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.fine { font-size: 12px; color: var(--muted); }
+.news h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.news ul { list-style: none; margin: 0; padding: 0; }
+.news li { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.news li:last-child { border-bottom: 0; }
+.news a { color: var(--fg); text-decoration: none; overflow-wrap: anywhere; }
+.news a:hover { text-decoration: underline; }
+.news .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.news a.out { color: var(--accent); }
+
+footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 24px; font-size: 12px; color: var(--muted); }
+
+/* Impostazioni */
+.sheet { position: fixed; inset: 0; z-index: 10; overflow-y: auto; background: var(--bg); padding-top: env(safe-area-inset-top, 0px); }
+.sheet-in { max-width: 640px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sheet h2 { font-size: 20px; font-weight: 600; }
+fieldset { margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 14px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+legend { padding: 0 6px; font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+label.f { display: flex; flex-direction: column; gap: 5px; font-weight: 500; }
+label.f .hint, .hint { font-weight: 400; font-size: 12px; color: var(--muted); }
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 9px 10px; min-width: 0;
+}
+textarea { font-family: var(--mono); font-size: 12.5px; min-height: 120px; resize: vertical; }
+.inline { display: flex; flex-wrap: wrap; gap: 8px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; }
+.check input { margin-top: 3px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row output { min-width: 3ch; text-align: right; font-family: var(--mono); }
+
+@media (max-width: 859px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .app[data-view="detail"] .list { display: none; }
+  .app[data-view="list"] .detail { display: none; }
+  .back { display: inline-block; }
+}
+</style>
+</head>
+<body>
+
+<div class="ticker" id="ticker" role="region" aria-label="Andamento dei principali asset">
+  <div class="ticker-msg">Caricamento andamento asset…</div>
+</div>
+
+<header class="top">
+  <h1>CRT Scanner</h1>
+  <span class="count" id="count" aria-live="polite"></span>
+  <div class="seg" id="tfSeg" role="group" aria-label="Time frame di analisi"></div>
+  <button class="btn" id="refreshBtn" type="button">Aggiorna</button>
+  <button class="btn" id="settingsBtn" type="button">Impostazioni</button>
+</header>
+
+<main class="app" id="app" data-view="list">
+  <section class="panel list" aria-labelledby="listTitle">
+    <div class="panel-head" id="listTitle">Strumenti analizzati</div>
+    <div id="notice"></div>
+    <div class="rows" id="rows"></div>
+  </section>
+  <section class="panel detail" id="detail" aria-live="polite"></section>
+</main>
+
+<footer>Strumento di analisi basato sulla Candle Range Theory: non è un consiglio di investimento.</footer>
+
+<section class="sheet" id="settings" hidden aria-label="Impostazioni">
+  <div class="sheet-in">
+    <div class="sheet-top">
+      <h2>Impostazioni</h2>
+      <button class="btn primary" id="closeSettings" type="button">Chiudi</button>
+    </div>
+
+    <fieldset>
+      <legend>Dati di mercato</legend>
+      <label class="f" for="apiKey">Chiave API Twelve Data
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false">
+        <span class="hint">La chiave resta nel tuo browser. Si crea gratis su twelvedata.com.</span>
+      </label>
+      <label class="f" for="rpm">Richieste al minuto
+        <input id="rpm" type="number" min="1" max="600" step="1">
+        <span class="hint">Il piano gratuito ne ammette 8: con molti strumenti la scansione richiede qualche minuto.</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>TradingView</legend>
+      <label class="f" for="tvUser">Nome utente TradingView
+        <input id="tvUser" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="f" for="watchlist">Watchlist
+        <textarea id="watchlist" spellcheck="false" autocapitalize="characters"></textarea>
+        <span class="hint" id="wlHint"></span>
+      </label>
+      <div class="inline">
+        <label class="btn" for="wlFile">Importa file…</label>
+        <input id="wlFile" type="file" accept=".txt,.csv,text/plain" hidden>
+        <button class="btn" id="wlPaste" type="button">Incolla dagli appunti</button>
+        <button class="btn" id="wlReset" type="button">Watchlist predefinita</button>
+      </div>
+      <p class="hint" style="margin:0">TradingView non offre un accesso ufficiale alla watchlist dell'account: aprila su TradingView, scegli «…» → Esporta lista e importa qui il file o il testo.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Analisi CRT</legend>
+      <label class="f" for="tfSel">Time frame
+        <select id="tfSel"></select>
+      </label>
+      <label class="f" for="bars">Barre nel grafico
+        <span class="range-row"><input id="bars" type="range" min="10" max="200" step="5"><output id="barsOut" for="bars"></output></span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Avvisi</legend>
+      <label class="check" for="notify"><input id="notify" type="checkbox">
+        <span>Avvisami quando c'è una CRT
+          <span class="hint" style="display:block">Notifica del browser e contatore sul titolo (e sull'icona, se la pagina è installata come app). Funziona finché la pagina resta aperta.</span>
+        </span>
+      </label>
+      <label class="f" for="every">Aggiorna automaticamente ogni (minuti)
+        <input id="every" type="number" min="0" max="240" step="1">
+        <span class="hint">0 disattiva l'aggiornamento automatico.</span>
+      </label>
+      <p class="hint" id="notifState" style="margin:0"></p>
+    </fieldset>
+  </div>
+</section>
+
+<script>
+"use strict";
+
+/* ============================ Motore CRT ============================ */
+// ENGINE-START
+const TF = {
+  h1: { label: "H1", api: "1h", sec: 3600 },
+  h4: { label: "H4", api: "4h", sec: 14400 },
+  d1: { label: "D1", api: "1day", sec: 86400 },
+  w1: { label: "W1", api: "1week", sec: 604800 }
+};
+
+// Candle Range Theory: C1 = candela di riferimento, C2 = candela che fa lo sweep di UN solo estremo di C1
+// e chiude di nuovo dentro il range. Stop e target sono calibrati su C1: stop sul suo estremo dal lato
+// dello sweep, target sull'estremo opposto (50% come primo obiettivo). L'entry è la chiusura di C2.
+function crtPattern(ref, c, refIndex, candIndex, tfSec, now) {
+  const sweptLow = c.low < ref.low;
+  const sweptHigh = c.high > ref.high;
+  if (sweptLow === sweptHigh) return null;                  // nessuno sweep, oppure candela "outside"
+  if (!(c.close > ref.low && c.close < ref.high)) return null; // deve chiudere dentro il range di C1
+  const bullish = sweptLow;
+  return {
+    direction: bullish ? "bullish" : "bearish",
+    status: c.t + tfSec * 1000 <= now ? "confirmed" : "forming",
+    refHigh: ref.high,
+    refLow: ref.low,
+    sweepExtreme: bullish ? c.low : c.high,
+    entry: c.close,
+    stop: bullish ? ref.low : ref.high,
+    target: bullish ? ref.high : ref.low,
+    mid: (ref.high + ref.low) / 2,
+    refIndex,
+    candIndex
+  };
+}
+
+// candles: ordinate dalla più vecchia; l'ultima può essere ancora in formazione.
+function analyzeCRT(candles, tfSec, now = Date.now()) {
+  const n = candles.length;
+  if (n < 3) return null;
+  const last = candles[n - 1];
+  const s = crtPattern(candles[n - 2], last, n - 2, n - 1, tfSec, now);
+  if (s) return s;
+  // Setup appena completato sulla candela precedente: valido finché non è invalidato o a target.
+  const p = crtPattern(candles[n - 3], candles[n - 2], n - 3, n - 2, tfSec, now);
+  if (p && p.status === "confirmed") {
+    if (p.direction === "bullish") { if (last.close < p.stop || last.high >= p.target) return null; }
+    else { if (last.close > p.stop || last.low <= p.target) return null; }
+    return p;
+  }
+  return null;
+}
+// ENGINE-END
+
+/* ============================ Simboli ============================ */
+const CURRENCIES = new Set(["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD"]);
+const METALS = new Set(["XAU", "XAG", "XPT", "XPD"]);
+const CRYPTO_EX = new Set(["BINANCE", "COINBASE", "BITSTAMP", "KRAKEN", "BYBIT", "BITFINEX", "OKX", "CRYPTO"]);
+const INDEX_PROXY = { SPX: "SPY", US500: "SPY", NDX: "QQQ", US100: "QQQ", DJI: "DIA", US30: "DIA" };
+
+function mapSymbol(token) {
+  const parts = token.toUpperCase().split(":");
+  const exchange = parts.length > 1 ? parts[0] : "";
+  const symbol = parts.length > 1 ? parts.slice(1).join(":") : parts[0];
+  if (!symbol) return null;
+  if (INDEX_PROXY[symbol]) return { display: symbol, provider: INDEX_PROXY[symbol] };
+  if (CRYPTO_EX.has(exchange)) {
+    for (const q of ["USDT", "USDC", "USD", "EUR", "BTC"]) {
+      if (symbol.endsWith(q) && symbol.length > q.length) {
+        const base = symbol.slice(0, -q.length);
+        return { display: symbol, provider: base + "/" + (q === "USDT" || q === "USDC" ? "USD" : q) };
+      }
+    }
+  }
+  if (symbol.length === 6) {
+    const b = symbol.slice(0, 3), q = symbol.slice(3);
+    if ((CURRENCIES.has(b) || METALS.has(b)) && CURRENCIES.has(q)) return { display: symbol, provider: b + "/" + q };
+  }
+  return { display: symbol, provider: symbol };
+}
+
+function parseWatchlist(text) {
+  const seen = new Set(), out = [];
+  for (const raw of text.split(/[\s,;]+/)) {
+    const t = raw.trim();
+    if (!t || t.startsWith("#")) continue;
+    const m = mapSymbol(t);
+    if (m && !seen.has(m.provider)) { seen.add(m.provider); out.push(m); }
+  }
+  return out;
+}
+
+/* ============================ Impostazioni ============================ */
+const DEFAULT_WATCHLIST = "OANDA:EURUSD, OANDA:GBPUSD, OANDA:USDJPY, OANDA:XAUUSD, BINANCE:BTCUSDT, NASDAQ:AAPL, NASDAQ:NVDA, AMEX:SPY";
+const DEFAULTS = { apiKey: "", rpm: 8, tvUser: "", watchlist: DEFAULT_WATCHLIST, tf: "h4", bars: 45, notify: false, every: 15 };
+const STORE_KEY = "crtscanner.settings";
+const SEEN_KEY = "crtscanner.seen";
+
+function loadSettings() {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORE_KEY) || "{}") }; }
+  catch { return { ...DEFAULTS }; }
+}
+function saveSettings() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch { /* storage non disponibile */ }
+}
+const settings = loadSettings();
+
+/* ============================ Utilità ============================ */
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    e.append(kid.nodeType ? kid : document.createTextNode(kid));
+  }
+  return e;
+}
+
+function fmt(v) {
+  const a = Math.abs(v);
+  const d = a < 1 ? 5 : a < 10 ? 4 : a < 1000 ? 3 : 2;
+  return v.toLocaleString("it-IT", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtDate(t, tf) {
+  const d = new Date(t);
+  return (tf === "d1" || tf === "w1")
+    ? d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" })
+    : d.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+function parseTime(s) {
+  const iso = s.length > 10 ? s.replace(" ", "T") + "Z" : s + "T00:00:00Z";
+  return Date.parse(iso);
+}
+
+/* ============================ Dati di mercato (Twelve Data) ============================ */
+let nextSlot = 0;
+async function throttle() {
+  const gap = 60000 / Math.max(1, settings.rpm);
+  const now = Date.now();
+  const slot = Math.max(now, nextSlot);
+  nextSlot = slot + gap;
+  if (slot > now) await sleep(slot - now);
+}
+async function api(path, params) {
+  if (!settings.apiKey) throw new Error("Chiave API mancante");
+  await throttle();
+  const url = new URL("https://api.twelvedata.com/" + path);
+  for (const [k, v] of Object.entries({ ...params, apikey: settings.apiKey })) url.searchParams.set(k, v);
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.status === "error") throw new Error(data.message || "Errore API");
+  return data;
+}
+async function fetchCandles(symbol, tf) {
+  const data = await api("time_series", { symbol, interval: TF[tf].api, outputsize: 200, timezone: "UTC" });
+  const out = (data.values || [])
+    .map((v) => ({ t: parseTime(v.datetime), open: +v.open, high: +v.high, low: +v.low, close: +v.close }))
+    .filter((c) => [c.t, c.open, c.high, c.low, c.close].every(Number.isFinite))
+    .sort((a, b) => a.t - b.t);
+  if (!out.length) throw new Error("Nessun dato ricevuto");
+  return out;
+}
+
+/* ============================ Stato e scansione ============================ */
+let results = [];
+let selectedId = null;
+let scanId = 0;
+let scanning = false;
+let ticker = [];
+
+const TICKER_ITEMS = [
+  ["SPY", "S&P 500"], ["QQQ", "Nasdaq 100"], ["DIA", "Dow Jones"],
+  ["EUR/USD", "EUR/USD"], ["XAU/USD", "Oro"], ["BTC/USD", "Bitcoin"]
+];
+
+async function scan() {
+  const id = ++scanId;
+  const instruments = parseWatchlist(settings.watchlist);
+  scanning = true;
+  $("refreshBtn").disabled = true;
+  $("refreshBtn").textContent = "Analisi in corso…";
+
+  results = instruments.map((instrument) => ({ instrument, candles: [], signal: null, error: null, loaded: false }));
+  renderAll();
+
+  for (let i = 0; i < instruments.length; i++) {
+    if (id !== scanId) return;
+    const r = results[i];
+    try {
+      r.candles = await fetchCandles(r.instrument.provider, settings.tf);
+      r.signal = analyzeCRT(r.candles, TF[settings.tf].sec);
+    } catch (e) {
+      r.error = e.message || "Errore";
+      if (e.message === "Chiave API mancante") { r.loaded = true; break; }
+    }
+    r.loaded = true;
+    if (id !== scanId) return;
+    renderAll();
+  }
+  if (id !== scanId) return;
+  scanning = false;
+  $("refreshBtn").disabled = false;
+  $("refreshBtn").textContent = "Aggiorna";
+  renderAll();
+  processAlerts();
+}
+
+async function loadTicker() {
+  if (!settings.apiKey) return;
+  const out = [];
+  for (const [symbol, name] of TICKER_ITEMS) {
+    try {
+      const q = await api("quote", { symbol });
+      const price = parseFloat(q.close), change = parseFloat(q.percent_change);
+      if (Number.isFinite(price)) { out.push({ name, price, change: Number.isFinite(change) ? change : 0 }); ticker = out.slice(); renderTicker(); }
+    } catch { /* strumento non disponibile con questo piano */ }
+  }
+}
+
+/* ============================ Avvisi ============================ */
+function signalKey(r) {
+  const s = r.signal;
+  return [r.instrument.provider, settings.tf, s.direction, s.refIndex >= 0 ? r.candles[s.refIndex].t : 0].join("|");
+}
+function processAlerts() {
+  const withSignal = results.filter((r) => r.signal);
+  const n = withSignal.length;
+  document.title = n ? `(${n}) CRT Scanner` : "CRT Scanner";
+  try { if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch { /* non supportato */ }
+
+  if (!settings.notify || !("Notification" in window) || Notification.permission !== "granted") return;
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || "[]"); } catch { /* ignora */ }
+  const set = new Set(seen);
+  for (const r of withSignal) {
+    if (r.signal.status !== "confirmed") continue;
+    const key = signalKey(r);
+    if (set.has(key)) continue;
+    set.add(key);
+    const s = r.signal;
+    try {
+      new Notification(`CRT ${s.direction === "bullish" ? "Long" : "Short"} · ${r.instrument.display} (${TF[settings.tf].label})`, {
+        body: `Entry ${fmt(s.entry)} · stop ${fmt(s.stop)} · target ${fmt(s.target)}`,
+        tag: key
+      });
+    } catch { /* notifica non consentita dal contesto */ }
+  }
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...set].slice(-300))); } catch { /* ignora */ }
+}
+
+/* ============================ Rendering: ticker ed elenco ============================ */
+function renderTicker() {
+  const box = $("ticker");
+  box.replaceChildren();
+  if (!ticker.length) {
+    box.append(h("div", { class: "ticker-msg", text: settings.apiKey ? "Caricamento andamento asset…" : "Inserisci la chiave API nelle impostazioni per vedere l'andamento degli asset." }));
+    return;
+  }
+  const group = (hidden) => h("div", { class: "ticker-group", "aria-hidden": hidden ? "true" : null },
+    ticker.map((q) => h("span", { class: "tk" },
+      h("b", { text: q.name }),
+      h("span", { text: fmt(q.price) }),
+      h("span", { class: q.change >= 0 ? "u" : "d", text: (q.change >= 0 ? "▲ +" : "▼ ") + q.change.toFixed(2).replace(".", ",") + "%" }))));
+  box.append(h("div", { class: "ticker-track" }, group(false), group(true)));
+}
+
+function rank(r) { return r.signal ? (r.signal.status === "confirmed" ? 0 : 1) : 2; }
+
+function renderList() {
+  const rows = $("rows");
+  const sorted = results.map((r, i) => [r, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
+  rows.replaceChildren(...sorted.map(rowEl));
+
+  const n = results.filter((r) => r.signal).length;
+  $("count").replaceChildren(
+    n ? h("span", {}, h("strong", { text: String(n) }), " opportunità CRT")
+      : document.createTextNode(scanning ? "" : "Nessuna opportunità al momento"));
+
+  const notice = $("notice");
+  notice.replaceChildren();
+  if (!settings.apiKey) {
+    notice.append(h("div", { class: "notice" },
+      "Inserisci la chiave API Twelve Data per caricare prezzi e candele.",
+      h("div", {}, h("button", { class: "btn primary", type: "button", onclick: openSettings, text: "Apri impostazioni" }))));
+  } else if (!results.length) {
+    notice.append(h("div", { class: "notice", text: "La watchlist è vuota: aggiungi dei simboli nelle impostazioni." }));
+  }
+}
+
+function rowEl(r) {
+  const s = r.signal;
+  const dir = s ? (s.direction === "bullish" ? "long" : "short") : "";
+  const cls = ["row", dir, s && s.status === "confirmed" ? "hot" : "", selectedId === r.instrument.provider ? "sel" : ""].filter(Boolean).join(" ");
+  const last = r.candles.length ? r.candles[r.candles.length - 1].close : null;
+
+  let state;
+  if (!r.loaded) state = h("span", { class: "state", text: "Analisi…" });
+  else if (s) state = h("span", { class: "state" },
+    h("span", { class: "badge " + dir, text: `CRT ${s.direction === "bullish" ? "Long ▲" : "Short ▼"}` }),
+    s.status === "forming" ? h("span", { class: "forming", text: "in formazione" }) : null);
+  else if (r.error) state = h("span", { class: "state err", title: r.error, text: "Errore dati" });
+  else state = h("span", { class: "state", text: "Nessun setup" });
+
+  return h("button", { class: cls, type: "button", onclick: () => select(r.instrument.provider) },
+    h("span", { class: "sym" },
+      h("strong", { text: r.instrument.display }),
+      h("span", { class: "px", text: last != null ? fmt(last) : (r.error && r.loaded ? "—" : "") })),
+    state);
+}
+
+function renderAll() {
+  renderList();
+  renderDetail();
+}
+
+/* ============================ Dettaglio: grafico ============================ */
+function renderChart(box, r, readout) {
+  const W = Math.max(280, Math.floor(box.clientWidth || 600));
+  const H = Math.round(clamp(W * 0.58, 260, 400));
+  const bars = clamp(settings.bars, 10, 200);
+  const start = Math.max(0, r.candles.length - bars);
+  const vis = r.candles.slice(start);
+  const s = r.signal;
+  const M = { l: 6, r: 66, t: 10, b: 22 };
+
+  let lo = Math.min(...vis.map((c) => c.low)), hi = Math.max(...vis.map((c) => c.high));
+  if (s) { lo = Math.min(lo, s.refLow); hi = Math.max(hi, s.refHigh); }
+  const pad = (hi - lo || hi * 0.01) * 0.06;
+  lo -= pad; hi += pad;
+
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  const step = pw / vis.length;
+  const X = (i) => M.l + (i + 0.5) * step;
+  const Y = (v) => M.t + (hi - v) / (hi - lo) * ph;
+  const bw = clamp(step * 0.62, 1, 14);
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs = {}, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Grafico a candele di ${r.instrument.display}` });
+
+  // Griglia e asse prezzi
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4, y = Y(v);
+    svg.append(el("line", { class: "grid-line", x1: M.l, x2: W - M.r, y1: y, y2: y }));
+    svg.append(el("text", { class: "axis-t", x: W - M.r + 6, y: y + 3.5 }, fmt(v)));
+  }
+  // Asse date
+  const every = Math.max(1, Math.round(vis.length / 5));
+  for (let i = 0; i < vis.length; i += every) {
+    svg.append(el("text", { class: "axis-t", x: X(i), y: H - 6, "text-anchor": "middle" }, fmtDate(vis[i].t, settings.tf).replace(/,? /, " ")));
+  }
+  // C1 e C2
+  if (s) {
+    for (const [idx, cls] of [[s.refIndex, "band-ref"], [s.candIndex, "band-sweep"]]) {
+      const i = idx - start;
+      if (i >= 0 && i < vis.length) svg.append(el("rect", { class: cls, x: X(i) - step / 2, y: M.t, width: step, height: ph }));
+    }
+  }
+  // Candele
+  vis.forEach((c, i) => {
+    const up = c.close >= c.open, x = X(i);
+    svg.append(el("line", { class: up ? "wick-up" : "wick-dn", x1: x, x2: x, y1: Y(c.high), y2: Y(c.low), "stroke-width": 1 }));
+    svg.append(el("rect", { class: up ? "body-up" : "body-dn", x: x - bw / 2, y: Math.min(Y(c.open), Y(c.close)), width: bw, height: Math.max(1, Math.abs(Y(c.open) - Y(c.close))) }));
+  });
+  // Livelli del setup
+  if (s) {
+    const bull = s.direction === "bullish";
+    const levels = [
+      { n: bull ? "Target · max C1" : "Stop · max C1", v: s.refHigh, c: bull ? "target" : "stop" },
+      { n: "50% C1", v: s.mid, c: "mid" },
+      { n: bull ? "Stop · min C1" : "Target · min C1", v: s.refLow, c: bull ? "stop" : "target" },
+      { n: "Entry", v: s.entry, c: "entry" }
+    ];
+    for (const L of levels) {
+      const y = Y(L.v);
+      svg.append(el("line", { class: `lv lv-${L.c}`, x1: M.l, x2: W - M.r, y1: y, y2: y }));
+      svg.append(el("text", { class: `lv-name axis-t`, x: M.l + 4, y: y - 4 }, L.n));
+    }
+    // Etichette di prezzo a destra, distanziate per non sovrapporsi
+    const pills = levels.map((L) => ({ ...L, y: Y(L.v) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < pills.length; i++) if (pills[i].y - pills[i - 1].y < 15) pills[i].y = pills[i - 1].y + 15;
+    for (const p of pills) {
+      const color = { target: "var(--up)", stop: "var(--down)", mid: "var(--muted)", entry: "var(--fg)" }[p.c];
+      svg.append(el("rect", { class: "pill", x: W - M.r + 1, y: p.y - 8, width: M.r - 2, height: 16, rx: 3, stroke: color }));
+      svg.append(el("text", { class: "pill-t", x: W - M.r + 5, y: p.y + 3.5, fill: color }, fmt(p.v)));
+    }
+  }
+  // Cursore e lettura OHLC
+  const cursor = el("line", { class: "cursor", y1: M.t, y2: M.t + ph, visibility: "hidden" });
+  svg.append(cursor);
+  const show = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    const i = clamp(Math.floor((evt.clientX - rect.left - M.l) / step), 0, vis.length - 1);
+    const c = vis[i];
+    cursor.setAttribute("x1", X(i)); cursor.setAttribute("x2", X(i)); cursor.setAttribute("visibility", "visible");
+    readout.textContent = `${fmtDate(c.t, settings.tf)}  A ${fmt(c.open)}  Max ${fmt(c.high)}  Min ${fmt(c.low)}  C ${fmt(c.close)}`;
+  };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerdown", show);
+  svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
+  box.replaceChildren(svg);
+}
+
+/* ============================ Dettaglio: notizie ============================ */
+const newsCache = new Map();
+async function fetchNews(inst) {
+  const hit = newsCache.get(inst.provider);
+  if (hit && Date.now() - hit.at < 600000) return hit.items;
+  const q = inst.provider.replace("/", " ") + " when:2d";
+  const rss = "https://news.google.com/rss/search?q=" + encodeURIComponent(q) + "&hl=it&gl=IT&ceid=IT:it";
+  const res = await fetch("https://api.rss2json.com/v1/api.json?rss_url=" + encodeURIComponent(rss));
+  const data = await res.json();
+  if (data.status !== "ok" || !Array.isArray(data.items)) throw new Error("Notizie non disponibili");
+  const items = data.items.slice(0, 15).map((it) => {
+    const m = /^(.*) - ([^-]+)$/.exec(it.title || "");
+    let link = null;
+    try { const u = new URL(it.link); if (u.protocol === "https:" || u.protocol === "http:") link = u.href; } catch { /* link non valido */ }
+    return { title: m ? m[1] : it.title, source: m ? m[2] : "", date: it.pubDate ? Date.parse(it.pubDate.replace(" ", "T") + "Z") : NaN, link };
+  }).filter((x) => x.title && x.link);
+  newsCache.set(inst.provider, { at: Date.now(), items });
+  return items;
+}
+function rel(t) {
+  if (!Number.isFinite(t)) return "";
+  const m = Math.round((t - Date.now()) / 60000), f = new Intl.RelativeTimeFormat("it", { numeric: "auto" });
+  if (Math.abs(m) < 60) return f.format(m, "minute");
+  if (Math.abs(m) < 1440) return f.format(Math.round(m / 60), "hour");
+  return f.format(Math.round(m / 1440), "day");
+}
+function drawNews(box, items) {
+  box.replaceChildren(items.length
+    ? h("ul", {}, items.map((n) => h("li", {},
+        h("a", { href: n.link, target: "_blank", rel: "noopener noreferrer", text: n.title }),
+        h("div", { class: "meta", text: [n.source, rel(n.date)].filter(Boolean).join(" · ") }))))
+    : h("p", { class: "fine", text: "Nessuna notizia recente." }));
+}
+async function fillNews(box, inst) {
+  const hit = newsCache.get(inst.provider);
+  if (hit && Date.now() - hit.at < 600000) { drawNews(box, hit.items); return; }
+  box.replaceChildren(h("p", { class: "fine", text: "Caricamento notizie…" }));
+  try {
+    const items = await fetchNews(inst);
+    if (selectedId === inst.provider) drawNews(box, items);
+  } catch {
+    if (selectedId !== inst.provider) return;
+    box.replaceChildren(h("p", { class: "fine" }, "Impossibile caricare le notizie. ",
+      h("a", { class: "out", href: "https://news.google.com/search?q=" + encodeURIComponent(inst.provider.replace("/", " ")) + "&hl=it", target: "_blank", rel: "noopener noreferrer", text: "Cerca su Google News" })));
+  }
+}
+
+/* ============================ Dettaglio ============================ */
+function select(id) {
+  selectedId = id;
+  $("app").dataset.view = "detail";
+  renderAll();
+  window.scrollTo({ top: 0 });
+}
+
+function renderDetail() {
+  const box = $("detail");
+  const r = results.find((x) => x.instrument.provider === selectedId);
+  if (!r) {
+    box.replaceChildren(h("div", { class: "empty", text: "Seleziona uno strumento per vedere grafico e notizie." }));
+    return;
+  }
+  const s = r.signal;
+  const last = r.candles.length ? r.candles[r.candles.length - 1].close : null;
+  const dir = s ? (s.direction === "bullish" ? "long" : "short") : "";
+
+  const chartBox = h("div", { class: "chart" });
+  const readout = h("div", { class: "readout", "aria-live": "off" });
+  const newsBox = h("div", {});
+  const bull = s && s.direction === "bullish";
+
+  box.replaceChildren(h("div", { class: "detail-body" },
+    h("button", { class: "btn back", type: "button", onclick: () => { $("app").dataset.view = "list"; }, text: "← Elenco" }),
+    h("div", { class: "d-head" },
+      h("div", {},
+        h("h2", { text: r.instrument.display }),
+        h("div", { class: "d-sub", text: `Time frame ${TF[settings.tf].label}` + (r.instrument.provider !== r.instrument.display ? ` · ${r.instrument.provider}` : "") })),
+      h("div", { style: "text-align:right" },
+        last != null ? h("div", { class: "d-px", text: fmt(last) }) : null,
+        s ? h("span", { class: "badge " + dir, text: `CRT ${bull ? "Long ▲" : "Short ▼"}${s.status === "forming" ? " · in formazione" : ""}` }) : h("span", { class: "d-sub", text: r.loaded ? "Nessun setup CRT" : "Analisi in corso…" }))),
+    r.error && !r.candles.length ? h("p", { class: "err", text: "Dati non disponibili: " + r.error }) : null,
+    r.candles.length ? [chartBox, readout] : null,
+    r.candles.length && s ? h("div", { class: "legend" },
+      h("span", { class: "l-ref", text: "Candela di riferimento (C1)" }),
+      h("span", { class: "l-sweep", text: "Candela dello sweep (C2)" })) : null,
+    s ? h("div", { class: "setup" },
+      h("h3", { text: bull ? "Sweep del minimo di C1 e rientro nel range: setup rialzista" : "Sweep del massimo di C1 e rientro nel range: setup ribassista" }),
+      h("dl", { class: "levels" },
+        h("div", {}, h("dt", { text: "Entry" }), h("dd", { text: fmt(s.entry) })),
+        h("div", {}, h("dt", { text: "Stop (estremo C1)" }), h("dd", { text: fmt(s.stop) })),
+        h("div", {}, h("dt", { text: "Target 50%" }), h("dd", { text: fmt(s.mid) })),
+        h("div", {}, h("dt", { text: "Target (estremo opposto C1)" }), h("dd", { text: fmt(s.target) }))),
+      h("div", { class: "fine", text: "Strumento di analisi: non è un consiglio di investimento." })) : null,
+    h("section", { class: "news" }, h("h3", { text: "Ultime notizie" }), newsBox)));
+
+  if (r.candles.length) renderChart(chartBox, r, readout);
+  fillNews(newsBox, r.instrument);
+}
+
+/* ============================ Impostazioni: interfaccia ============================ */
+function renderTfSeg() {
+  $("tfSeg").replaceChildren(...Object.entries(TF).map(([k, v]) =>
+    h("button", { type: "button", "aria-pressed": String(settings.tf === k), text: v.label, onclick: () => setTf(k) })));
+  $("tfSel").value = settings.tf;
+}
+function setTf(k) {
+  if (settings.tf === k) return;
+  settings.tf = k;
+  saveSettings();
+  renderTfSeg();
+  scan();
+}
+function updateHints() {
+  $("wlHint").textContent = `${parseWatchlist($("watchlist").value).length} strumenti riconosciuti. Separa i simboli con virgole o a capo (es. OANDA:EURUSD).`;
+  $("barsOut").textContent = $("bars").value;
+  const st = !("Notification" in window) ? "Questo browser non supporta le notifiche."
+    : Notification.permission === "denied" ? "Le notifiche sono bloccate: abilitale dalle impostazioni del sito nel browser."
+    : Notification.permission === "granted" ? "Notifiche del browser abilitate." : "";
+  $("notifState").textContent = st;
+}
+function openSettings() { $("settings").hidden = false; $("closeSettings").focus(); }
+function closeSettings() { $("settings").hidden = true; $("settingsBtn").focus(); }
+
+function bindSettings() {
+  $("tfSel").replaceChildren(...Object.entries(TF).map(([k, v]) => h("option", { value: k, text: v.label })));
+  $("apiKey").value = settings.apiKey;
+  $("rpm").value = settings.rpm;
+  $("tvUser").value = settings.tvUser;
+  $("watchlist").value = settings.watchlist;
+  $("bars").value = settings.bars;
+  $("notify").checked = settings.notify;
+  $("every").value = settings.every;
+  renderTfSeg();
+  updateHints();
+
+  $("apiKey").addEventListener("change", () => { settings.apiKey = $("apiKey").value.trim(); saveSettings(); renderTicker(); scan(); loadTicker(); });
+  $("rpm").addEventListener("change", () => { settings.rpm = clamp(parseInt($("rpm").value, 10) || 8, 1, 600); $("rpm").value = settings.rpm; saveSettings(); });
+  $("tvUser").addEventListener("input", () => { settings.tvUser = $("tvUser").value; saveSettings(); });
+  $("watchlist").addEventListener("input", updateHints);
+  $("watchlist").addEventListener("change", () => { settings.watchlist = $("watchlist").value; saveSettings(); updateHints(); scan(); });
+  $("tfSel").addEventListener("change", () => setTf($("tfSel").value));
+  $("bars").addEventListener("input", () => { settings.bars = parseInt($("bars").value, 10); saveSettings(); updateHints(); renderDetail(); });
+  $("every").addEventListener("change", () => { settings.every = clamp(parseInt($("every").value, 10) || 0, 0, 240); $("every").value = settings.every; saveSettings(); scheduleAuto(); });
+  $("notify").addEventListener("change", async () => {
+    settings.notify = $("notify").checked;
+    if (settings.notify && "Notification" in window && Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch { /* ignora */ }
+    }
+    saveSettings(); updateHints(); processAlerts();
+  });
+
+  const setWatchlist = (text) => { $("watchlist").value = text; $("watchlist").dispatchEvent(new Event("change")); };
+  $("wlReset").addEventListener("click", () => setWatchlist(DEFAULT_WATCHLIST));
+  $("wlPaste").addEventListener("click", async () => {
+    try { const t = await navigator.clipboard.readText(); if (t.trim()) setWatchlist(t); }
+    catch { $("wlHint").textContent = "Accesso agli appunti non consentito: incolla il testo direttamente nel campo."; }
+  });
+  $("wlFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (f) setWatchlist(await f.text());
+    e.target.value = "";
+  });
+  $("closeSettings").addEventListener("click", closeSettings);
+  $("settingsBtn").addEventListener("click", openSettings);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("settings").hidden) closeSettings(); });
+  $("refreshBtn").addEventListener("click", () => { scan(); loadTicker(); });
+}
+
+/* ============================ Avvio ============================ */
+let autoTimer = null;
+function scheduleAuto() {
+  clearInterval(autoTimer);
+  if (settings.every > 0) autoTimer = setInterval(() => { if (!scanning) scan(); }, settings.every * 60000);
+}
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (selectedId) renderDetail(); }, 150);
+});
+
+bindSettings();
+renderTicker();
+renderAll();
+if (!settings.apiKey) openSettings();
+scan();
+loadTicker();
+setInterval(loadTicker, 600000);
+scheduleAuto();
+</script>
+</body>
+</html>
